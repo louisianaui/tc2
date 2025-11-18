@@ -161,6 +161,16 @@ VisualsESP:AddToggle("VE_ShowNames", { Text = "Show Names", Default = true, Tool
 VisualsESP:AddToggle("VE_HideTeammates", { Text = "Hide Teammates", Default = false, Tooltip = "Don't show ESP for teammates" })
 
 local VisualsEffects = Tabs.Visuals:AddRightGroupbox("Effects")
+VisualsEffects:AddToggle("VV_CustomFOV", { Text = "Custom FOV", Default = false, Tooltip = "Enable custom field of view" })
+VisualsEffects:AddSlider("VV_FOVValue", { 
+    Text = "FOV Value", 
+    Default = 80, 
+    Min = 50, 
+    Max = 120, 
+    Rounding = 0, 
+    Compact = true,
+    Tooltip = "Set custom field of view value"
+})
 VisualsEffects:AddDivider()
 VisualsEffects:AddToggle("VV_Notifications", { Text = "Notifications", Default = true, Tooltip = "Show script notifications" })
 
@@ -229,6 +239,11 @@ local function RefreshAllFeatures()
         Toggles.VE_PlayerESP:SetValue(true)
     end
     
+    -- Refresh FOV if enabled
+    if Toggles.VV_CustomFOV.Value then
+        UpdateFOV()
+    end
+    
     -- Refresh Speed Demon if enabled
     if Toggles.MO_SpeedDemon.Value then
         -- Speed Demon will auto-retry due to our previous fix
@@ -236,7 +251,6 @@ local function RefreshAllFeatures()
     
     print("[CONFIG] All features refreshed after autoload")
 end
-
 
 -- Load autoload config with delay
 task.spawn(function()
@@ -500,6 +514,45 @@ Toggles.VE_HideTeammates:OnChanged(function(State)
             else
                 Library:Notify("Showing all players in ESP!")
             end
+        end
+    end
+end)
+
+-- FOV System
+local FOVLoop
+
+local function UpdateFOV()
+    if Toggles.VV_CustomFOV.Value then
+        workspace.CurrentCamera.FieldOfView = Options.VV_FOVValue.Value
+    end
+end
+
+Toggles.VV_CustomFOV:OnChanged(function(State)
+    if State then
+        FOVLoop = game:GetService("RunService").Heartbeat:Connect(function()
+            UpdateFOV()
+        end)
+        if Toggles.VV_Notifications.Value then
+            Library:Notify("Custom FOV enabled: " .. Options.VV_FOVValue.Value)
+        end
+    else
+        if FOVLoop then
+            FOVLoop:Disconnect()
+            FOVLoop = nil
+        end
+        -- Reset to default FOV when disabled
+        workspace.CurrentCamera.FieldOfView = 70 -- Default Roblox FOV
+        if Toggles.VV_Notifications.Value then
+            Library:Notify("Custom FOV disabled")
+        end
+    end
+end)
+
+Options.VV_FOVValue:OnChanged(function(Value)
+    if Toggles.VV_CustomFOV.Value then
+        UpdateFOV()
+        if Toggles.VV_Notifications.Value then
+            Library:Notify("FOV updated: " .. Value)
         end
     end
 end)
