@@ -290,8 +290,9 @@ Options.CH_Size:OnChanged(function(Value)
     end
 end)
 
--- Player ESP System
+-- [[ add plesp here ]]
 local ESPObjects = {}
+local ESPLoop
 
 local function CreateESP(player)
     if ESPObjects[player.Name] then return end
@@ -316,7 +317,7 @@ local function CreateESP(player)
     billboard.Name = player.Name .. "Name"
     billboard.Adornee = player.Character:WaitForChild("HumanoidRootPart")
     billboard.Size = UDim2.new(0, 100, 0, 50)
-    billboard.StudsOffset = Vector3.new(0, 0, 0) -- Centered on HumanoidRootPart
+    billboard.StudsOffset = Vector3.new(0, 3, 0) -- Slightly above character
     billboard.AlwaysOnTop = true
     billboard.MaxDistance = 512
     billboard.Parent = CoreGui
@@ -329,7 +330,7 @@ local function CreateESP(player)
     nameLabel.Text = player.Name
     nameLabel.TextColor3 = Toggles.VE_TeamColors.Value and player.TeamColor.Color or Color3.new(1, 0, 1)
     nameLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-    nameLabel.TextStrokeTransparency = 1
+    nameLabel.TextStrokeTransparency = 0.3
     nameLabel.TextScaled = true
     nameLabel.Font = Enum.Font.GothamBold
     nameLabel.Visible = Toggles.VE_ShowNames.Value
@@ -340,23 +341,6 @@ local function CreateESP(player)
         NameLabel = nameLabel,
         Player = player
     }
-
-    -- Team tracking for when player respawns
-    player.CharacterAdded:Connect(function()
-        wait(1)
-        if Toggles.VE_PlayerESP.Value and ESPObjects[player.Name] then
-            -- Update colors if team changed
-            if Toggles.VE_TeamColors.Value then
-                local espData = ESPObjects[player.Name]
-                espData.Highlight.FillColor = player.TeamColor.Color
-                espData.NameLabel.TextColor3 = player.TeamColor.Color
-            end
-            -- Hide if they joined our team
-            if Toggles.VE_HideTeammates.Value and player.Team == LocalPlayer.Team then
-                RemoveESP(player.Name)
-            end
-        end
-    end)
 end
 
 local function RemoveESP(playerName)
@@ -371,64 +355,57 @@ local function RemoveESP(playerName)
     end
 end
 
-local function SetupPlayerTeamTracking(player)
-    if player == LocalPlayer then return end
+local function UpdateESP()
+    if not Toggles.VE_PlayerESP.Value then return end
     
-    player.CharacterAdded:Connect(function(character)
-        -- Wait for team to be assigned
-        wait(1)
-        if Toggles.VE_PlayerESP.Value and ESPObjects[player.Name] then
-            -- Update colors when character respawns (team might change)
-            if Toggles.VE_TeamColors.Value then
-                local espData = ESPObjects[player.Name]
-                if espData and espData.Highlight then
-                    espData.Highlight.FillColor = player.TeamColor.Color
+    for _, player in Players:GetPlayers() do
+        if player ~= LocalPlayer and player.Character then
+            local espData = ESPObjects[player.Name]
+            
+            -- Check if we should show/hide based on team settings
+            local shouldShow = not Toggles.VE_HideTeammates.Value or player.Team ~= LocalPlayer.Team
+            
+            if shouldShow then
+                if not espData then
+                    -- Create new ESP
+                    CreateESP(player)
+                else
+                    -- Update existing ESP
+                    if espData.Highlight then
+                        espData.Highlight.FillColor = Toggles.VE_TeamColors.Value and player.TeamColor.Color or Color3.new(1, 0, 1)
+                        espData.Highlight.Enabled = true
+                    end
+                    if espData.NameLabel then
+                        espData.NameLabel.TextColor3 = Toggles.VE_TeamColors.Value and player.TeamColor.Color or Color3.new(1, 0, 1)
+                        espData.NameLabel.Visible = Toggles.VE_ShowNames.Value
+                    end
+                    if espData.Billboard and player.Character:FindFirstChild("HumanoidRootPart") then
+                        espData.Billboard.Adornee = player.Character.HumanoidRootPart
+                    end
                 end
-                if espData and espData.NameLabel then
-                    espData.NameLabel.TextColor3 = player.TeamColor.Color
+            else
+                -- Remove ESP if shouldn't show
+                if espData then
+                    RemoveESP(player.Name)
                 end
             end
-            
-            -- Remove if hiding teammates and player is on our team
-            if Toggles.VE_HideTeammates.Value and player.Team == LocalPlayer.Team then
+        else
+            -- Remove ESP if player left or no character
+            if ESPObjects[player.Name] then
                 RemoveESP(player.Name)
             end
         end
-    end)
-end
-
--- Setup team tracking for existing players
-for _, player in Players:GetPlayers() do
-    if player ~= LocalPlayer then
-        SetupPlayerTeamTracking(player)
     end
 end
-
--- Setup team tracking for new players
-Players.PlayerAdded:Connect(function(player)
-    SetupPlayerTeamTracking(player)
-end)
 
 local function CleanupESP()
     for playerName, espData in pairs(ESPObjects) do
         RemoveESP(playerName)
     end
     ESPObjects = {}
-end
-
-local function RefreshESP()
-    if not Toggles.VE_PlayerESP.Value then return end
-    
-    -- Remove all current ESP
-    for playerName, espData in pairs(ESPObjects) do
-        RemoveESP(playerName)
-    end
-    
-    -- Recreate ESP for all players with current settings
-    for _, player in Players:GetPlayers() do
-        if player ~= LocalPlayer and player.Character then
-            CreateESP(player)
-        end
+    if ESPLoop then
+        ESPLoop:Disconnect()
+        ESPLoop = nil
     end
 end
 
@@ -442,11 +419,16 @@ Toggles.VE_PlayerESP:OnChanged(function(State)
             end
         end
         
+        -- Start ESP update loop
+        ESPLoop = game:GetService("RunService").Heartbeat:Connect(function()
+            UpdateESP()
+        end)
+        
         -- Player added event
         Players.PlayerAdded:Connect(function(player)
             player.CharacterAdded:Connect(function(character)
-                if Toggles.VE_PlayerESP.Value and player ~= LocalPlayer then
-                    wait(1) -- Wait for character to load
+                wait(1) -- Wait for character to load
+                if Toggles.VE_PlayerESP.Value then
                     CreateESP(player)
                 end
             end)
@@ -474,10 +456,10 @@ Toggles.VE_TeamColors:OnChanged(function(State)
         for playerName, espData in pairs(ESPObjects) do
             local player = espData.Player
             if player and espData.Highlight then
-                espData.Highlight.FillColor = State and player.TeamColor.Color or Color3.new(1, 0, 0)
+                espData.Highlight.FillColor = State and player.TeamColor.Color or Color3.new(1, 0, 1)
             end
             if player and espData.NameLabel then
-                espData.NameLabel.TextColor3 = State and player.TeamColor.Color or Color3.new(1, 1, 1)
+                espData.NameLabel.TextColor3 = State and player.TeamColor.Color or Color3.new(1, 0, 1)
             end
         end
     end
@@ -497,7 +479,7 @@ end)
 -- Hide Teammates Toggle
 Toggles.VE_HideTeammates:OnChanged(function(State)
     if Toggles.VE_PlayerESP.Value then
-        RefreshESP()
+        -- The UpdateESP loop will handle showing/hiding teammates automatically
         if Toggles.VV_Notifications.Value then
             if State then
                 Library:Notify("Teammates hidden from ESP!")
